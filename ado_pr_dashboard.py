@@ -161,18 +161,17 @@ with st.sidebar:
     platform_filter = st.multiselect("Platform", ["Android", "iOS"], default=["Android", "iOS"])
     status_filter = st.selectbox("PR Status", ["All", "Active", "Completed", "Abandoned"], index=0)
     user_filter = st.text_input("Filter by user (name or email contains)")
-    previous_pr_df = st.session_state.get("pr_df", pd.DataFrame())
-    available_users = (
-        sorted(previous_pr_df["User"].dropna().astype(str).unique())
-        if not previous_pr_df.empty
-        else []
+    excluded_users_text = st.text_area(
+        "Exclude users by name or email",
+        key="excluded_user_identifiers",
+        placeholder="name@company.com, Display Name",
+        help="Enter exact display names or email addresses, separated by commas or new lines. Matching ignores letter case.",
     )
-    excluded_users = st.multiselect(
-        "Exclude users",
-        options=available_users,
-        key="excluded_users",
-        help="Selected users are omitted from the KPIs, charts, test coverage, and PR details.",
-    )
+    excluded_users = [
+        identifier.strip().casefold()
+        for identifier in re.split(r"[,;\n]", excluded_users_text)
+        if identifier.strip()
+    ]
     include_line_stats = st.checkbox(
         "Include lines added/removed (slower — fetches per-file diffs)", value=False
     )
@@ -540,7 +539,10 @@ if "pr_df" in st.session_state:
         df = df[name_match | email_match]
 
     if not df.empty and excluded_users:
-        df = df[~df["User"].isin(excluded_users)]
+        excluded_identifiers = set(excluded_users)
+        excluded_by_name = df["User"].fillna("").astype(str).str.casefold().isin(excluded_identifiers)
+        excluded_by_email = df["User Email"].fillna("").astype(str).str.casefold().isin(excluded_identifiers)
+        df = df[~(excluded_by_name | excluded_by_email)]
 
     if df.empty:
         st.info("No pull requests found for this date range / status / user filter across any repo in the project.")
@@ -605,7 +607,7 @@ if "pr_df" in st.session_state:
                 )
                 .reset_index()
             )
-            test_summary["Test Coverage %"] = (
+            test_summary["Test files %"] = (
                 test_summary["PRs_With_Tests"] / test_summary["Total_PRs"] * 100
             ).round(1)
 
@@ -625,28 +627,32 @@ if "pr_df" in st.session_state:
                     min_prs = st.slider("Minimum PRs per user", 1, 10, 1, key="min_prs")
                     st.markdown("**Share of each contributor's PRs with detected test files**")
                     st.caption("This is the share of PRs with a changed file identified as a test file, not code coverage. Each bar is labeled with (n = total PRs); a 100% from 1 PR is a small sample.")
-                    cov = test_summary[test_summary["Total_PRs"] >= min_prs].sort_values("Test Coverage %", ascending=False).head(20)
-                    cov = cov.rename(columns={"Test Coverage %": "Coverage"})[["User", "Total_PRs", "Coverage"]]
+                    cov = test_summary[test_summary["Total_PRs"] >= min_prs].sort_values("Test files %", ascending=False).head(20)
+                    cov = cov.rename(columns={"Test files %": "Test files %"})[["User", "Total_PRs", "Test files %"]]
                     if cov.empty:
                         st.info("No contributors meet the minimum PR count.")
                     else:
                         cov = cov.copy()
                         cov["User"] = cov["User"] + " (n=" + cov["Total_PRs"].astype(str) + ")"
                         cov_color = alt.Color(
-                            "Coverage:Q",
+                            "Test files %:Q",
                             scale=alt.Scale(domain=[0, 50, 100], range=["#E5484D", "#F5A524", "#2E9E6B"]),
                             legend=None,
                         )
-                        st.altair_chart(ranked_bar(cov[["User", "Coverage"]], "User", "Coverage", cov_color))
+                        st.altair_chart(ranked_bar(cov[["User", "Test files %"]], "User", "Test files %", cov_color))
 
             with st.expander("Test-file signals by contributor"):
                 st.dataframe(
-                    test_summary.sort_values("Test Coverage %", ascending=True),
+                    test_summary.sort_values("Test files %", ascending=True),
                     width='stretch',
                     hide_index=True,
                     column_config={
-                        "Test Coverage %": st.column_config.ProgressColumn(
-                            "Test Coverage %", min_value=0, max_value=100, format="%.1f%%"
+                        "Test files %": st.column_config.ProgressColumn(
+                            "Test files %",
+                            help="Percentage of this contributor's PRs that included at least one changed file recognized as a test file. This is not code coverage.",
+                            min_value=0,
+                            max_value=100,
+                            format="%.1f%%",
                         ),
                     },
                 )
