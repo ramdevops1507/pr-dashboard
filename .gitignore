@@ -1,0 +1,12 @@
+.DS_Store
+.agents/
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.streamlit/secrets.toml
+*.log
+*backup*.py
+*_bak*
+*.bak*
+config.toml_backup
