@@ -103,10 +103,10 @@ def is_test_file(path: str) -> bool:
 
 
 def classify_pr_test_status(file_paths: list, labels: list, labels_available: bool = True) -> str:
-    if not labels_available:
-        return "Review needed (labels unavailable)"
-
-    normalized_labels = {re.sub(r"[\s_]+", "-", label.strip().lower()) for label in labels}
+    normalized_labels = {
+        re.sub(r"[\s_]+", "-", label.strip().lower())
+        for label in labels
+    } if labels_available else set()
     if TESTS_NOT_APPLICABLE_LABEL in normalized_labels:
         return "Not applicable (label)"
 
@@ -118,11 +118,6 @@ def classify_pr_test_status(file_paths: list, labels: list, labels_available: bo
 
     if source_paths:
         return "Tests included" if test_paths else "Tests not detected"
-    if test_paths and all(
-        is_test_file(path) or path.lower().endswith(DOCUMENTATION_SUFFIXES)
-        for path in file_paths
-    ):
-        return "Tests only"
     if file_paths and all(path.lower().endswith(DOCUMENTATION_SUFFIXES) for path in file_paths):
         return "Not applicable (documentation only)"
     return "Review needed (configuration or unclassified files)"
@@ -610,7 +605,7 @@ if "pr_df" in st.session_state:
             k4.metric(
                 "Applicable PRs with tests",
                 applicable_test_rate,
-                help="PRs classified as requiring tests that have at least one changed file recognized as a test file, divided by all applicable PRs. Not-applicable, test-only, and review-needed PRs are excluded. This is not code coverage.",
+                help="PRs with functional source changes and at least one changed file recognized as a test file, divided by all applicable PRs. Not-applicable and review-needed PRs are excluded. This is not code coverage.",
             )
             k5.metric("Completed", f"{round((df['Status_clean'] == 'Completed').mean() * 100, 1)}%")
 
@@ -654,14 +649,11 @@ if "pr_df" in st.session_state:
         with tab_tests:
             not_applicable_count = int(df["Test status"].str.startswith("Not applicable").sum())
             review_needed_count = int(df["Test status"].str.startswith("Review needed").sum())
-            tests_only_count = int((df["Test status"] == "Tests only").sum())
-
-            summary_columns = st.columns(5)
+            summary_columns = st.columns(4)
             summary_columns[0].metric("Applicable PRs with tests", applicable_test_rate)
             summary_columns[1].metric("Applicable PRs", applicable_pr_count)
             summary_columns[2].metric("Not applicable", not_applicable_count)
             summary_columns[3].metric("Review needed", review_needed_count)
-            summary_columns[4].metric("Tests-only PRs", tests_only_count)
             st.caption(
                 "The rate uses only PRs with functional source changes. Documentation-only PRs and PRs labeled "
                 "tests-not-applicable are excluded. Add that Azure DevOps label only with an agreed reason. "
@@ -760,7 +752,7 @@ if "pr_df" in st.session_state:
                     "Approved By": st.column_config.TextColumn("Approved By", width="medium"),
                     "Test status": st.column_config.TextColumn(
                         "Test status",
-                        help="Tests included: source changes and a recognized test file. Tests not detected: source changes but no recognized test file. Not applicable: documentation-only or explicitly labeled tests-not-applicable. Tests only: no source change detected. Review needed: configuration/unclassified changes or labels could not be read. This is not code coverage.",
+                        help="Tests included: a recognized changed test file is present. Tests not detected: functional source files changed but no test file was recognized. Not applicable: documentation-only or explicitly labeled tests-not-applicable. Review needed: configuration or unclassified changes. If the tests-not-applicable label is absent or labels cannot be fetched, changed files are still checked for test files. This is not code coverage.",
                     ),
                     "Test files changed": st.column_config.NumberColumn("Test files changed", format="%d"),
                 },
