@@ -82,6 +82,10 @@ TEST_FILENAME_SUFFIXES = (
     ".spec.js", ".spec.ts", ".spec.jsx", ".spec.tsx",
     "_test.py", "test.py",
 )
+FUNCTIONAL_SOURCE_SUFFIXES = (".kt", ".java", ".swift", ".m", ".mm", ".h", ".js", ".jsx", ".ts", ".tsx", ".cs")
+DOCUMENTATION_SUFFIXES = (".md", ".rst", ".txt", ".adoc")
+TESTS_NOT_APPLICABLE_LABEL = "tests-not-applicable"
+APPLICABLE_TEST_STATUSES = {"Tests included", "Tests not detected"}
 
 
 def is_test_file(path: str) -> bool:
@@ -96,6 +100,32 @@ def is_test_file(path: str) -> bool:
     if filename.startswith("test_"):
         return True
     return False
+
+
+def classify_pr_test_status(file_paths: list, labels: list, labels_available: bool = True) -> str:
+    if not labels_available:
+        return "Review needed (labels unavailable)"
+
+    normalized_labels = {re.sub(r"[\s_]+", "-", label.strip().lower()) for label in labels}
+    if TESTS_NOT_APPLICABLE_LABEL in normalized_labels:
+        return "Not applicable (label)"
+
+    test_paths = [path for path in file_paths if is_test_file(path)]
+    source_paths = [
+        path for path in file_paths
+        if path and path.lower().endswith(FUNCTIONAL_SOURCE_SUFFIXES) and not is_test_file(path)
+    ]
+
+    if source_paths:
+        return "Tests included" if test_paths else "Tests not detected"
+    if test_paths and all(
+        is_test_file(path) or path.lower().endswith(DOCUMENTATION_SUFFIXES)
+        for path in file_paths
+    ):
+        return "Tests only"
+    if file_paths and all(path.lower().endswith(DOCUMENTATION_SUFFIXES) for path in file_paths):
+        return "Not applicable (documentation only)"
+    return "Review needed (configuration or unclassified files)"
 
 # ----------------------------- Page setup -----------------------------
 
@@ -175,7 +205,7 @@ with st.sidebar:
     include_line_stats = st.checkbox(
         "Include lines added/removed (slower — fetches per-file diffs)", value=False
     )
-    st.caption("Test-file detection (TestFiles / TestAdded? / Test%) uses changed file paths and names; it does not measure code coverage.")
+    st.caption("Test-file status uses changed paths, source-file patterns, and the optional tests-not-applicable PR label; it is not code coverage.")
     st.caption("The user filter applies instantly to already-fetched data — no need to re-click Fetch.")
 
     fetch = st.button("🔄 Fetch Pull Requests", type="primary")
@@ -270,6 +300,18 @@ def get_pr_file_changes(org: str, proj: str, repo_id: str, pr_id: int) -> list:
         return []
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_pr_labels(org: str, proj: str, repo_id: str, pr_id: int) -> tuple:
+    """Return PR label names and whether the label endpoint was accessible."""
+    url = f"https://dev.azure.com/{org}/{proj}/_apis/git/repositories/{repo_id}/pullRequests/{pr_id}/labels"
+    try:
+        data = ado_get(url, {"api-version": API_VERSION})
+        labels = [label.get("name", "") for label in data.get("value", [])]
+        return labels, True
+    except Exception:
+        return [], False
+
+
 # Files whose diffs are noise, not authored code: lockfiles get fully rewritten
 # by tooling, generated Xcode/build files churn on every build, minified/binary
 # files aren't human-edited line-by-line. Counting these inflates "lines
@@ -361,10 +403,9 @@ def flatten_pr(pr: dict, repo_name: str, include_diff: bool) -> dict:
     # option, and is reused for the diff calc below so it's only fetched once.
     file_changes = get_pr_file_changes(ADO_ORG, ADO_PROJECT, repo_id, pr_id)
     file_paths = [c.get("item", {}).get("path") or "" for c in file_changes]
-    total_files = len(file_paths)
     test_file_count = sum(1 for p in file_paths if is_test_file(p))
-    test_added = "Yes" if test_file_count > 0 else "No"
-    test_percent = round(test_file_count / total_files * 100, 1) if total_files else 0.0
+    labels, labels_available = get_pr_labels(ADO_ORG, ADO_PROJECT, repo_id, pr_id)
+    test_status = classify_pr_test_status(file_paths, labels, labels_available)
 
     lines_added, lines_removed = (None, None)
     if include_diff:
@@ -380,9 +421,9 @@ def flatten_pr(pr: dict, repo_name: str, include_diff: bool) -> dict:
         "Repository": repo_name,
         "Platform": get_platform(repo_name),
         "Created": created_fmt,
-        "TestFiles": test_file_count,
-        "TestAdded?": test_added,
-        "Test%": test_percent,
+        "Test files changed": test_file_count,
+        "Test status": test_status,
+        "PR labels": ", ".join(labels),
         "Lines Added": lines_added,
         "Lines Removed": lines_removed,
         "Link": web_url,
@@ -550,6 +591,14 @@ if "pr_df" in st.session_state:
         df = df.copy()
         df["Created_dt"] = pd.to_datetime(df["Created"], errors="coerce")
         df["Status_clean"] = df["Status"].astype(str).str.capitalize()
+        applicable_prs = df[df["Test status"].isin(APPLICABLE_TEST_STATUSES)]
+        applicable_pr_count = len(applicable_prs)
+        tests_included_count = int((applicable_prs["Test status"] == "Tests included").sum())
+        applicable_test_rate = (
+            f"{tests_included_count / applicable_pr_count * 100:.1f}%"
+            if applicable_pr_count
+            else "N/A"
+        )
 
         # ----------------------- Overview tab -----------------------
         with tab_overview:
@@ -558,7 +607,11 @@ if "pr_df" in st.session_state:
             k1.metric("Total PRs", len(df))
             k2.metric("Contributors", df["User"].nunique())
             k3.metric("Repositories", df["Repository"].nunique())
-            k4.metric("PRs with detected test files", f"{round((df['TestAdded?'] == 'Yes').mean() * 100, 1)}%")
+            k4.metric(
+                "Applicable PRs with tests",
+                applicable_test_rate,
+                help="PRs classified as requiring tests that have at least one changed file recognized as a test file, divided by all applicable PRs. Not-applicable, test-only, and review-needed PRs are excluded. This is not code coverage.",
+            )
             k5.metric("Completed", f"{round((df['Status_clean'] == 'Completed').mean() * 100, 1)}%")
 
             st.write("")
@@ -599,41 +652,73 @@ if "pr_df" in st.session_state:
 
         # ----------------------- Test-file signals tab ------------------
         with tab_tests:
+            not_applicable_count = int(df["Test status"].str.startswith("Not applicable").sum())
+            review_needed_count = int(df["Test status"].str.startswith("Review needed").sum())
+            tests_only_count = int((df["Test status"] == "Tests only").sum())
+
+            summary_columns = st.columns(5)
+            summary_columns[0].metric("Applicable PRs with tests", applicable_test_rate)
+            summary_columns[1].metric("Applicable PRs", applicable_pr_count)
+            summary_columns[2].metric("Not applicable", not_applicable_count)
+            summary_columns[3].metric("Review needed", review_needed_count)
+            summary_columns[4].metric("Tests-only PRs", tests_only_count)
+            st.caption(
+                "The rate uses only PRs with functional source changes. Documentation-only PRs and PRs labeled "
+                "tests-not-applicable are excluded. Add that Azure DevOps label only with an agreed reason. "
+                "Configuration or unclassified changes are flagged for review, not automatically exempted. "
+                "This is a test-file signal, not code coverage."
+            )
+
             test_summary = (
                 df.groupby("User")
                 .agg(
                     Total_PRs=("PR_ID", "count"),
-                    PRs_With_Tests=("TestAdded?", lambda s: (s == "Yes").sum()),
+                    Applicable_PRs=("Test status", lambda s: s.isin(APPLICABLE_TEST_STATUSES).sum()),
+                    PRs_With_Tests=("Test status", lambda s: (s == "Tests included").sum()),
                 )
                 .reset_index()
             )
             test_summary["Test files %"] = (
-                test_summary["PRs_With_Tests"] / test_summary["Total_PRs"] * 100
-            ).round(1)
+                test_summary["PRs_With_Tests"] / test_summary["Applicable_PRs"] * 100
+            ).where(test_summary["Applicable_PRs"] > 0).round(1)
+
+            status_counts = (
+                df.groupby(["Test status", "Platform"])
+                .size()
+                .rename("PRs")
+                .reset_index()
+                .sort_values(["Test status", "Platform"])
+            )
+            with st.expander("PRs by test status and platform"):
+                st.dataframe(status_counts, hide_index=True)
 
             t1, t2 = st.columns([1, 2])
             with t1:
                 with card("test_donut"):
-                    st.markdown("**PRs with vs without detected test files**")
-                    n_yes = int((df["TestAdded?"] == "Yes").sum())
-                    tests_df = pd.DataFrame({"Result": ["With tests", "Without tests"], "PRs": [n_yes, len(df) - n_yes]})
-                    st.altair_chart(donut(tests_df, "Result", "PRs", TEST_COLORS))
+                    st.markdown("**Applicable PRs with vs without detected test files**")
+                    if applicable_pr_count:
+                        n_yes = tests_included_count
+                        tests_df = pd.DataFrame({"Result": ["With tests", "Without tests"], "PRs": [n_yes, applicable_pr_count - n_yes]})
+                        st.altair_chart(donut(tests_df, "Result", "PRs", TEST_COLORS))
+                    else:
+                        st.info("No applicable PRs in this selection.")
                     for plat in ("Android", "iOS"):
-                        sub = df[df["Platform"] == plat]
+                        sub = applicable_prs[applicable_prs["Platform"] == plat]
                         if len(sub):
-                            st.metric(f"{plat} PRs with detected test files", f"{round((sub['TestAdded?'] == 'Yes').mean() * 100, 1)}%")
+                            platform_rate = (sub["Test status"] == "Tests included").mean() * 100
+                            st.metric(f"{plat} applicable PRs with tests", f"{platform_rate:.1f}%")
             with t2:
                 with card("test_users"):
                     min_prs = st.slider("Minimum PRs per user", 1, 10, 1, key="min_prs")
-                    st.markdown("**Share of each contributor's PRs with detected test files**")
-                    st.caption("This is the share of PRs with a changed file identified as a test file, not code coverage. Each bar is labeled with (n = total PRs); a 100% from 1 PR is a small sample.")
-                    cov = test_summary[test_summary["Total_PRs"] >= min_prs].sort_values("Test files %", ascending=False).head(20)
-                    cov = cov.rename(columns={"Test files %": "Test files %"})[["User", "Total_PRs", "Test files %"]]
+                    st.markdown("**Share of applicable PRs with detected test files by contributor**")
+                    st.caption("Only PRs classified as requiring tests are in the denominator. The percentage indicates presence of a recognized test file, not code coverage. Each bar includes the eligible PR count (n).")
+                    cov = test_summary[test_summary["Applicable_PRs"] >= min_prs].sort_values("Test files %", ascending=False).head(20)
+                    cov = cov.dropna(subset=["Test files %"])[["User", "Applicable_PRs", "Test files %"]]
                     if cov.empty:
                         st.info("No contributors meet the minimum PR count.")
                     else:
                         cov = cov.copy()
-                        cov["User"] = cov["User"] + " (n=" + cov["Total_PRs"].astype(str) + ")"
+                        cov["User"] = cov["User"] + " (n=" + cov["Applicable_PRs"].astype(str) + ")"
                         cov_color = alt.Color(
                             "Test files %:Q",
                             scale=alt.Scale(domain=[0, 50, 100], range=["#E5484D", "#F5A524", "#2E9E6B"]),
@@ -660,7 +745,10 @@ if "pr_df" in st.session_state:
         # ----------------------- PR Details tab -----------------------
         with tab_details:
             status_labels = {"completed": "✅ Completed", "active": "🔄 Active", "abandoned": "❌ Abandoned"}
-            table_df = df.drop(columns=["User Email", "Created_dt", "Status_clean"], errors="ignore")
+            table_df = df.drop(
+                columns=["User Email", "Created_dt", "Status_clean", "TestAdded?", "Test%", "TestFiles"],
+                errors="ignore",
+            )
             table_df["Status"] = table_df["Status"].map(lambda s: status_labels.get(str(s).lower(), s))
             st.dataframe(
                 table_df,
@@ -670,20 +758,11 @@ if "pr_df" in st.session_state:
                     "Link": st.column_config.LinkColumn("Open PR", display_text="View →"),
                     "Title": st.column_config.TextColumn("Title", width="large"),
                     "Approved By": st.column_config.TextColumn("Approved By", width="medium"),
-                    "Test%": st.column_config.ProgressColumn(
-                        "Test-file share (%)",
-                        help=(
-                            "Matched changed test files divided by all changed files. This is not code coverage: "
-                            "it does not show how much changed code is tested. False positive: one code file plus "
-                            "two test files can show 67%, even if those tests do not cover that code. False negative: "
-                            "10 code files plus one test file shows about 9%, even if that one test file covers all "
-                            "10 files. If code and tests are in separate PRs, the code PR can show 0% while the "
-                            "test-only PR shows 100%. Treat this only as a rough changed-file mix indicator."
-                        ),
-                        min_value=0,
-                        max_value=100,
-                        format="%.0f%%",
+                    "Test status": st.column_config.TextColumn(
+                        "Test status",
+                        help="Tests included: source changes and a recognized test file. Tests not detected: source changes but no recognized test file. Not applicable: documentation-only or explicitly labeled tests-not-applicable. Tests only: no source change detected. Review needed: configuration/unclassified changes or labels could not be read. This is not code coverage.",
                     ),
+                    "Test files changed": st.column_config.NumberColumn("Test files changed", format="%d"),
                 },
             )
             csv = table_df.to_csv(index=False).encode("utf-8")
