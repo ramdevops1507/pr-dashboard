@@ -1,14 +1,52 @@
-# Azure DevOps PR Analytics
+# Dashboard Projects
 
-A Streamlit dashboard for reviewing pull-request activity across the configured Azure DevOps repositories, including PR status, contributors, test-file signals, and optional line-change estimates.
+A single repository on the `main` branch for independently maintained dashboards.
 
-## Run locally
+## Repository structure
+
+```text
+Projects/
+├── ADO_PR_Dashboard/
+│   ├── ado_pr_dashboard.py
+│   └── requirements.txt
+├── Jira/
+│   └── README.md
+└── Sonar/
+    ├── streamlit_app.py
+    ├── sonar_client.py
+    ├── requirements.txt
+    ├── tests/
+    └── README.md
+.streamlit/
+└── config.toml
+requirements.txt
+```
+
+- [Azure DevOps PR Dashboard](Projects/ADO_PR_Dashboard/): implemented; reviews PR status, contributors, test-file signals, and optional line-change estimates.
+- [Jira](Projects/Jira/): reserved for the future Jira dashboard.
+- [Sonar](Projects/Sonar/): implemented; compares mobile-app quality gates, coverage, duplication, and code-quality measures. See its README for secrets, network requirements, and launch instructions.
+
+Keep each dashboard's entry point and dependencies in its own project folder.
+The root `requirements.txt` currently delegates to the Azure DevOps project's requirements.
+
+## Local dashboard ports
+
+| Dashboard | Port | URL |
+|-----------|------|-----|
+| Azure DevOps | 8502 | http://localhost:8502 |
+| Sonar | 8501 | http://localhost:8501 |
+
+Use the explicit port in each launch command so both dashboards can run together.
+
+## Run the Azure DevOps dashboard locally
+
+Run these commands from the repository root so Streamlit uses the existing root-level theme and local secrets:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run ado_pr_dashboard.py
+streamlit run Projects/ADO_PR_Dashboard/ado_pr_dashboard.py --server.port 8502
 ```
 
 Create `.streamlit/secrets.toml` locally with an Azure DevOps PAT that has Code (Read) access:
@@ -23,7 +61,7 @@ DASHBOARD_PASSWORD = "choose-a-dashboard-password"
 ## Deploy with Streamlit Community Cloud
 
 1. Sign in to Streamlit Community Cloud with a GitHub account that can access this private repository.
-2. Create an app from `ramdevops1507/pr-dashboard`, branch `main`, with `ado_pr_dashboard.py` as the main file.
+2. Create an app from `ramdevops1507/pr-dashboard`, branch `main`, with `Projects/ADO_PR_Dashboard/ado_pr_dashboard.py` as the main file. For an existing deployment, update its main-file path or recreate the deployment with this path.
 3. In the app's settings, add the required secrets using the TOML format above. Keep the values in Streamlit's Secrets settings, not in GitHub.
 4. Deploy and check the app logs if the Azure DevOps API cannot be reached or the PAT lacks repository access.
 

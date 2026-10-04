@@ -6,10 +6,10 @@ date range and shows: user, PR title, status, approver(s), and (optionally)
 lines added/removed per PR.
 
 Setup:
-    pip install streamlit requests pandas
+    pip install -r Projects/ADO_PR_Dashboard/requirements.txt
 
 Run:
-    streamlit run ado_pr_dashboard.py
+    streamlit run Projects/ADO_PR_Dashboard/ado_pr_dashboard.py --server.port 8502
 
 Auth:
     You need an Azure DevOps Personal Access Token (PAT) with at least

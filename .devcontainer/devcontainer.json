@@ -6,7 +6,7 @@
     "codespaces": {
       "openFiles": [
         "README.md",
-        "ado_pr_dashboard.py"
+        "Projects/ADO_PR_Dashboard/ado_pr_dashboard.py"
       ]
     },
     "vscode": {
@@ -19,15 +19,20 @@
   },
   "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
   "postAttachCommand": {
-    "server": "streamlit run ado_pr_dashboard.py --server.enableCORS false --server.enableXsrfProtection false"
+    "server": "streamlit run Projects/ADO_PR_Dashboard/ado_pr_dashboard.py --server.port 8502 --server.enableCORS false --server.enableXsrfProtection false"
   },
   "portsAttributes": {
     "8501": {
-      "label": "Application",
+      "label": "Sonar Dashboard",
+      "onAutoForward": "openPreview"
+    },
+    "8502": {
+      "label": "ADO PR Dashboard",
       "onAutoForward": "openPreview"
     }
   },
   "forwardPorts": [
-    8501
+    8501,
+    8502
   ]
 }
