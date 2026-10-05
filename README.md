@@ -28,6 +28,8 @@ requirements.txt
 
 Keep each dashboard's entry point and dependencies in its own project folder.
 The root `requirements.txt` currently delegates to the Azure DevOps project's requirements.
+The root `ado_pr_dashboard.py` remains as a compatibility entry point for an existing
+Streamlit Community Cloud app configured with its original main-file path.
 
 ## Local dashboard ports
 
