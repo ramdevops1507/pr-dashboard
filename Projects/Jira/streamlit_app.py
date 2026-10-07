@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+from access import require_password, sign_out
 from jira_client import DEFAULT_SPRINT_IDS, ISSUE_COLUMNS, JiraClient, JiraError, main_report, parse_sprint_ids, summarize, validate_url
 from presentation import breakdown_chart, donut_chart, quality_chart, quality_counts, status_chart
 
@@ -30,6 +31,16 @@ st.html("""
 with st.container(key="jira_hero"):
     st.title("Jira sprint dashboard")
     st.caption("DELIVERY & QUALITY | Sprint performance, bugs, and defects")
+try:
+    dashboard_password = st.secrets.get("JIRA_DASHBOARD_PASSWORD", "")
+except StreamlitSecretNotFoundError:
+    dashboard_password = ""
+if not isinstance(dashboard_password, str) or not dashboard_password.strip():
+    st.session_state.clear()
+    st.error("Configure JIRA_DASHBOARD_PASSWORD in local or deployment secrets. Access is disabled until a password is set.")
+    st.stop()
+require_password(dashboard_password)
+
 st.caption(
     "Completed counts use Jira's Done status category. Closed sprints show current issue "
     "statuses, not statuses at sprint closure. This is not a historical burndown or velocity report."
@@ -67,6 +78,7 @@ with st.sidebar:
     st.caption("Each fetch refreshes the selected sprints. Filters below do not call Jira again.")
     st.divider()
     st.caption("Dashboard designed by Ramesh N")
+    st.button("Sign out", key="jira_sign_out", on_click=sign_out)
 
 config_key = (url, email, token, flag_field, "subtask-schema-v1")
 if st.session_state.get("jira_config") != config_key:

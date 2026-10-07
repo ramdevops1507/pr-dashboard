@@ -1,4 +1,5 @@
 import sys
+import hashlib
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -230,7 +231,55 @@ class DashboardTests(unittest.TestCase):
         app.secrets["JIRA_URL"] = "https://example.atlassian.net"
         app.secrets["JIRA_EMAIL"] = "test@example.test"
         app.secrets["JIRA_API_TOKEN"] = token
+        app.secrets["JIRA_DASHBOARD_PASSWORD"] = "test-dashboard-password"
+        app.session_state["jira_password_verified"] = hashlib.sha256(b"test-dashboard-password").hexdigest()
         return app
+
+    def test_password_blocks_api_and_reports(self):
+        app = self.app()
+        del app.session_state["jira_password_verified"]
+        app.session_state["jira_reports"] = [sprint_report(1)]
+        with patch("jira_client.JiraClient.report") as fetch:
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertFalse(app.dataframe)
+            self.assertFalse(app.text_area)
+            app.text_input[0].set_value("wrong").run()
+            app.button[0].click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any("Incorrect password" in error.value for error in app.error))
+            fetch.assert_not_called()
+        self.assertNotIn("jira_reports", app.session_state)
+
+    def test_password_login_signout_and_rotation(self):
+        app = self.app()
+        del app.session_state["jira_password_verified"]
+        app.run()
+        app.text_input[0].set_value("test-dashboard-password").run()
+        app.button[0].click().run()
+        self.assertFalse(app.exception)
+        self.assertTrue(app.text_area)
+        self.assertNotIn("jira_login_password", app.session_state)
+        app.session_state["jira_reports"] = [sprint_report(1)]
+        app.button(key="jira_sign_out").click().run()
+        self.assertFalse(app.exception)
+        self.assertFalse(app.text_area)
+        self.assertNotIn("jira_reports", app.session_state)
+        app = self.app()
+        app.secrets["JIRA_DASHBOARD_PASSWORD"] = "rotated-test-password"
+        app.run()
+        self.assertFalse(app.exception)
+        self.assertFalse(app.text_area)
+
+    def test_missing_dashboard_password_fails_closed(self):
+        app = self.app()
+        app.secrets["JIRA_DASHBOARD_PASSWORD"] = ""
+        with patch("jira_client.JiraClient.report") as fetch:
+            app.run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any("JIRA_DASHBOARD_PASSWORD" in error.value for error in app.error))
+        self.assertFalse(app.text_area)
+        fetch.assert_not_called()
 
     def test_missing_configuration_no_network(self):
         with patch("jira_client.JiraClient.report") as fetch:

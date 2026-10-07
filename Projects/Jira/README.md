@@ -20,6 +20,7 @@ your ADO and Sonar credentials:
 JIRA_URL = "https://your-company.atlassian.net"
 JIRA_EMAIL = "your-account-email"
 JIRA_API_TOKEN = "your-jira-cloud-api-token"
+JIRA_DASHBOARD_PASSWORD = "choose-a-strong-unique-dashboard-password"
 # Optional: your Jira instance's Flagged field ID (do not guess it).
 # JIRA_FLAGGED_FIELD = "customfield_10021"
 ```
@@ -31,6 +32,18 @@ sprints/boards and Browse Projects permission; issue security can limit visible
 results. Use an API token compatible with direct site-URL Basic authentication.
 Scoped tokens requiring Atlassian's gateway URL are not supported by this version.
 Never share or commit tokens.
+
+## Additional password screen
+
+Set `JIRA_DASHBOARD_PASSWORD` in local and Cloud secrets. If absent or empty, the
+app refuses access. No Jira configuration, reports, or API calls are exposed before
+the password check. **Sign out** clears the session's report data and returns to
+the password screen; changing the secret invalidates access on the next rerun.
+Failed attempts have a short per-session cooldown, not a global rate limit.
+
+Keep Streamlit Cloud private access enabled. This shared password is an extra
+screen, not individual identity, SSO, or a replacement for hosting-level access
+controls. Use a strong unique password and rotate passwords disclosed in chat.
 
 ## Sprint reporting
 
