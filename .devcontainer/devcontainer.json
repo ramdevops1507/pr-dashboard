@@ -29,10 +29,15 @@
     "8502": {
       "label": "ADO PR Dashboard",
       "onAutoForward": "openPreview"
+    },
+    "8503": {
+      "label": "Jira Sprint Dashboard",
+      "onAutoForward": "openPreview"
     }
   },
   "forwardPorts": [
     8501,
-    8502
+    8502,
+    8503
   ]
 }

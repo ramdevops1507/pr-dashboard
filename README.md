@@ -10,6 +10,10 @@ Projects/
 │   ├── ado_pr_dashboard.py
 │   └── requirements.txt
 ├── Jira/
+│   ├── streamlit_app.py
+│   ├── jira_client.py
+│   ├── requirements.txt
+│   ├── tests/
 │   └── README.md
 └── Sonar/
     ├── streamlit_app.py
@@ -23,7 +27,7 @@ requirements.txt
 ```
 
 - [Azure DevOps PR Dashboard](Projects/ADO_PR_Dashboard/): implemented; reviews PR status, contributors, test-file signals, and optional line-change estimates.
-- [Jira](Projects/Jira/): reserved for the future Jira dashboard.
+- [Jira](Projects/Jira/): implemented; reports current issue counts and statuses by editable sprint IDs. See its README for authentication and snapshot limitations.
 - [Sonar](Projects/Sonar/): implemented; compares mobile-app quality gates, coverage, duplication, and code-quality measures. See its README for secrets, network requirements, and launch instructions.
 
 Keep each dashboard's entry point and dependencies in its own project folder.
@@ -37,8 +41,9 @@ Streamlit Community Cloud app configured with its original main-file path.
 |-----------|------|-----|
 | Azure DevOps | 8502 | http://localhost:8502 |
 | Sonar | 8501 | http://localhost:8501 |
+| Jira | 8503 | http://localhost:8503 |
 
-Use the explicit port in each launch command so both dashboards can run together.
+Use the explicit port in each launch command so all three dashboards can run together.
 
 ## Run the Azure DevOps dashboard locally
 
